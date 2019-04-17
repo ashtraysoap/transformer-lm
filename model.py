@@ -5,6 +5,30 @@ import tensorflow as tf
 
 from opt import adam, warmup_constant, warmup_cosine, warmup_linear
 
+def default_hparams():
+    # commented out are original values
+    return HParams(
+        n_vocab=0,
+        n_ctx=1024,
+        n_embd=256,#756,
+        n_head=4,#12,
+        n_layer=3,#12,
+        max_grad_norm=1,
+        lr=6.25e-5,
+        lr_warmup=0.002,
+        l2=0.01,
+        vector_l2='store_true',
+        lr_schedule='warmup_linear',
+        b1=0.9,
+        b2=0.999,
+        e=1e-8,
+        opt='adam', # alternatively 'tf_adam'
+        batch_size=8,
+        n_epochs=10,
+        stride=8,
+        sample_every=1000
+    )
+
 def past_shape(*, hparams, batch_size=None, sequence=None):
     return [batch_size, hparams.n_layer, 2, hparams.n_head, sequence, hparams.n_embd // hparams.n_head]
 

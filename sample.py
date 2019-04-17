@@ -1,6 +1,7 @@
 import tensorflow as tf
 
 import model
+from model import default_hparams
 
 def top_k_logits(logits, k):
     if k == 0:
@@ -76,3 +77,9 @@ def sample_sequence(*, hparams, length, start_token=None, batch_size=None, conte
         )
 
     return tokens
+
+
+def main():
+
+if __name__ == "__main__":
+    main()
