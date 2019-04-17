@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 
 import tensorflow as tf
@@ -8,11 +9,18 @@ import datagen as dg
 from sample import sample_sequence
 from model import default_hparams, get_train_ops
 
+def log(msg, logs, nl=True):
+    for l in logs:
+        l.write(msg)
+        if nl:
+            l.write('\n')
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--infile', type=str, default="", help="path to the text corpus")
     parser.add_argument('-modelpath', type=str, default="models/", help="path under which model checkpoints will be saved")
+    parser.add_argument('-verbose', help="if present, prints samples generated while training to stdout")
     args = parser.parse_args()
 
     hp = default_hparams()
@@ -59,36 +67,45 @@ def main():
     primed_text = [cti[c] for c in primed_text]
 
     saver = tf.train.Saver(max_to_keep=5)
+    signature = str(int(time.time())) # model signature
+
+    # log files for model's loss and intermediate samples
+    lossf = open('loss_%s.txt' % signature, 'w')
+    trainf = open('train_%s.txt' % signature, 'w')
+    logs = [trainf] if args.verbose else [trainf, sys.stdout]
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for e in range(hp.n_epochs):
-            print("Epoch", e + 1)
+            log("================= Epoch {} =================".format(e + 1), logs)
             for batch in g:
+
+                # compute loss on batch and update params
                 l, _ = sess.run((loss, train_ops),feed_dict={context: batch['features'],
                                                             labels: batch['labels']})
                 print(l)
+                lossf.write('%d\n' % l)
             
                 steps += 1
                 if steps % sample_steps == 0:
                     # sample model
-                    print("================= Sampling | {} steps =================".format(steps))
+                    log("================= Sampling | {} steps | epoch {} =================".format(steps, e + 1), logs)
                     out = sess.run(output, feed_dict={context: batch_size * [primed_text]})
                     for i in range(out.shape[0]):
                         text = ''.join([itc[x] for x in out[i]])
-                        print(i)
-                        print(text)
+                        log(i, logs)
+                        log(text, logs)
                 
                 # save model
-                ckpt_path = os.path.join(args.modelpath, str(int(time.time())) + '.ckpt')
+                ckpt_path = os.path.join(args.modelpath, signature + '.ckpt')
                 saver.save(sess, ckpt_path, global_step=e)
 
-        print("End of training, final sample:")
+        log("================= End of training | Final samples =================", logs)
         out = sess.run(output, feed_dict={context: batch_size * [primed_text]})
         for i in range(out.shape[0]):
             text = ''.join([itc[x] for x in out[i]])
-            print(i)
-            print(text)
+            log(i, logs)
+            log(text, logs)
 
 
 if __name__ == "__main__":
