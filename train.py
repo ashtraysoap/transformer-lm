@@ -1,3 +1,6 @@
+import os
+import time
+
 import tensorflow as tf
 from tensorflow.contrib.training import HParams
 
@@ -9,7 +12,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--infile', type=str, default="", help="path to the text corpus")
-    parser.add_argument('-modelpath', type=str, default="models/checkpoint.ckpt", help="path under which model checkpoints will be made")
+    parser.add_argument('-modelpath', type=str, default="models/", help="path under which model checkpoints will be saved")
     args = parser.parse_args()
 
     hp = default_hparams()
@@ -69,7 +72,7 @@ def main():
                 steps += 1
                 if steps % sample_steps == 0:
                     # sample model
-                    print("================= Sampling =================")
+                    print("================= Sampling | {} steps =================".format(steps))
                     out = sess.run(output, feed_dict={context: batch_size * [primed_text]})
                     for i in range(out.shape[0]):
                         text = ''.join([itc[x] for x in out[i]])
@@ -77,7 +80,8 @@ def main():
                         print(text)
                 
                 # save model
-                saver.save(sess, args.modelpath, global_step=e)
+                ckpt_path = os.path.join(args.modelpath, str(int(time.time())) + '.ckpt')
+                saver.save(sess, ckpt_path, global_step=e)
 
         print("End of training, final sample:")
         out = sess.run(output, feed_dict={context: batch_size * [primed_text]})
