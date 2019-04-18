@@ -18,9 +18,9 @@ def log(msg, logs, nl=True):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--infile', type=str, default="", help="path to the text corpus")
-    parser.add_argument('-modelpath', type=str, default="models/", help="path under which model checkpoints will be saved")
-    parser.add_argument('-verbose', help="if present, prints samples generated while training to stdout")
+    parser.add_argument('infile', type=str, default="", help="path to the text corpus")
+    parser.add_argument('-m', '--modelpath', type=str, default="models/", help="path under which model checkpoints will be saved")
+    parser.add_argument('-v', '--verbose', action='store_true', help="if present, prints samples generated while training to stdout")
     args = parser.parse_args()
 
     hp = default_hparams()
@@ -33,9 +33,7 @@ def main():
     cti = dg.make_char_to_idx(fname)
     itc = {v: k for k, v in cti.items()}
     
-    print("Character to Index dictionary:", cti)
     hp.n_vocab = len(cti)
-    print("Number of elements in the vocabulary:", hp.n_vocab)
     
     batch_size = hp.batch_size
     total_chars = dg.get_char_count(fname)
@@ -72,7 +70,7 @@ def main():
     # log files for model's loss and intermediate samples
     lossf = open('loss_%s.txt' % signature, 'w')
     trainf = open('train_%s.txt' % signature, 'w')
-    logs = [trainf] if args.verbose else [trainf, sys.stdout]
+    logs = [trainf, sys.stdout] if args.verbose else [trainf]
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -83,8 +81,7 @@ def main():
                 # compute loss on batch and update params
                 l, _ = sess.run((loss, train_ops),feed_dict={context: batch['features'],
                                                             labels: batch['labels']})
-                print(l)
-                lossf.write('%d\n' % l)
+                lossf.write('%f\n' % l)
             
                 steps += 1
                 if steps % sample_steps == 0:
@@ -107,6 +104,8 @@ def main():
             log(i, logs)
             log(text, logs)
 
+    trainf.close()
+    lossf.close()
 
 if __name__ == "__main__":
     main()
