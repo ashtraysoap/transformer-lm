@@ -1,12 +1,19 @@
 import os
 import sys
 import time
+import json
 
 import tensorflow as tf
 
 import datagen as dg
 from sample import sample_sequence
 from model import default_hparams, get_train_ops
+
+def _print_decoded(outputs, idx_to_char, logs):
+    for i in range(outputs.shape[0]):
+            text = ''.join([idx_to_char[x] for x in outputs[i]])
+            log(i, logs)
+            log(text, logs)
 
 def log(msg, logs, nl=True):
     if not type(logs) == list:
@@ -86,10 +93,7 @@ def main():
                     # sample model
                     log("================= Sampling | {} steps | epoch {} =================".format(steps, e + 1), logs)
                     out = sess.run(output, feed_dict={context: batch_size * [primed_text]})
-                    for i in range(out.shape[0]):
-                        text = ''.join([itc[x] for x in out[i]])
-                        log(i, logs)
-                        log(text, logs)
+                    _print_decoded(out, itc, logs)
                 
                 # save model
                 if not os.path.exists(args.modelpath):
@@ -99,10 +103,13 @@ def main():
 
         log("================= End of training | Final samples =================", logs)
         out = sess.run(output, feed_dict={context: batch_size * [primed_text]})
-        for i in range(out.shape[0]):
-            text = ''.join([itc[x] for x in out[i]])
-            log(i, logs)
-            log(text, logs)
+        _print_decoded(out, itc, logs)
+
+    # coda
+    with open('vocab.json', 'w', encoding='utf-8') as f:
+        json.dump(cti, f)
+    with open('hparams.json', 'w') as f:
+        f.write(hp.to_json)
 
     trainf.close()
     lossf.close()
