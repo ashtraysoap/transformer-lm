@@ -1,4 +1,7 @@
+import json
+
 import tensorflow as tf
+from tensorflow.contrib.training import HParams
 
 import model
 from model import default_hparams
@@ -80,6 +83,58 @@ def sample_sequence(*, hparams, length, start_token=None, batch_size=None, conte
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('model', type=str, help="path to the model checkpoint")
+    parser.add_argument('vocab', type=str, help="path to the char_to_idx mapping json file")
+    parser.add_argument('--hparams', type=str, help="path to the json-stored model hyperparameters")
+    parser.add_argument('--length', type=int, help="character length of text samples")
+    parser.add_argument('--batch_size', type=int, default=1, help="number of samples to be sampled in one run")
+    parser.add_argument('--temperature', type=float, default=1., help="degree of ceratinty when generating samples. 0 means deterministic")
+    parser.add_argument('--top_k', type=int, default=0, help="how much characters to consider at each sampling step. 1 means most deterministic")
+    parser.add_argument('--n_samples', type=int, default=1, help="number of samples to generate")
+    parser.add_argument('--seed', type=int, default=144, help="random seed for reproducibility")
+    args = parser.parse_args()
+
+    with open(args.vocab, 'r', encoding='utf-8') as fp:
+        char_to_idx = json.load(fp)
+        idx_to_char = {v: k for k, v in char_to_idx.items()}
+    
+    hparams = default_hparams() if args.hparams is None else HParams.parse_json(json.load(hparams))
+    length = length if args.length is not None else hparams.n_ctx // 2
+
+    # build graph
+    context = tf.placeholder(tf.int32, [args.batch_size, None])
+    tf.set_random_seed(args.seed)
+    output = sample_sequence(
+        hparams=hparams,
+        length=length,
+        context=context,
+        batch_size=args.batch_size,
+        temperature=args.temperature,
+        top_k=args.top_k
+    )
+
+    with tf.Session() as sess:
+        saver = tf.train.Saver()
+        saver.restore(sess, args.model)
+
+        primed_text = 'Haba'
+
+        context_tokens = [char_to_idx[x] for x in primed_text]
+        generated = 0
+        for _ in range(args.n_samples // args.batch_size):
+            out = sess.run(output, feed_dict={
+                context: [context_tokens for _ in range(args.batch_size)]
+            })#[:, len(context_tokens):]
+            for i in range(args.batch_size):
+                generated += 1
+                text = [idx_to_char[x] for x in out[i]]
+                text = ''.join(text)
+                print("=" * 40 + " SAMPLE " + str(generated) + " " + "=" * 40)
+                print(text)
+
+
 
 if __name__ == "__main__":
     main()
