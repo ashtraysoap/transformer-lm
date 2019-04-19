@@ -7,15 +7,15 @@ import numpy as np
 
 def data_iterator(inf, char_to_idx, buffer=65536, context=512, batch=8, stride=8):
     """
-        Generator yielding batches of { features, logits }.
+        Generator yielding batches of { features, labels }.
         Assumes the language modelling objective.
         A features instance is a `context` long continuous block of characters.
-        The corresponding logit to an element of such an instance is the immediately 
+        The corresponding label to an element of such an instance is the immediately 
         following character.
         Example:
             'nekonecno'
             features: char_to_idx('nekonecn')
-            logits: char_to_idx('ekonecno')
+            label: char_to_idx('ekonecno')
         Args:
             inf: path to file containing input data
             char_to_idx: mapping from characters to indices
