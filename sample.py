@@ -100,8 +100,8 @@ def main():
         char_to_idx = json.load(fp)
         idx_to_char = {v: k for k, v in char_to_idx.items()}
     
-    hparams = default_hparams() if args.hparams is None else HParams.parse_json(json.load(hparams))
-    length = length if args.length is not None else hparams.n_ctx // 2
+    hparams = default_hparams() if args.hparams is None else HParams.parse_json(json.load(args.hparams))
+    length = args.length if args.length is not None else hparams.n_ctx // 2
 
     # build graph
     context = tf.placeholder(tf.int32, [args.batch_size, None])
