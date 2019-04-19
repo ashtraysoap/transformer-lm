@@ -2,6 +2,7 @@ from functools import partial
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib.training import HParams
 
 from opt import adam, warmup_constant, warmup_cosine, warmup_linear
 
@@ -9,8 +10,8 @@ def default_hparams():
     # commented out are original values
     return HParams(
         n_vocab=0,
-        n_ctx=1024,
-        n_embd=256,#756,
+        n_ctx=64,#1024,
+        n_embd=64,#256,#756,
         n_head=4,#12,
         n_layer=3,#12,
         max_grad_norm=1,
@@ -26,7 +27,7 @@ def default_hparams():
         batch_size=8,
         n_epochs=10,
         stride=8,
-        sample_every=1000
+        sample_every=10#00
     )
 
 def past_shape(*, hparams, batch_size=None, sequence=None):
