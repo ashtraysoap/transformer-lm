@@ -28,10 +28,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('infile', type=str, help="path to the text corpus")
     parser.add_argument('-m', '--modelpath', type=str, default="models/", help="path under which model checkpoints will be saved")
+    parser.add_argument('-p', '--hparams', type=str, help="path to json-stored hyperparams")
     parser.add_argument('-v', '--verbose', action='store_true', help="if present, prints samples generated while training to stdout")
     args = parser.parse_args()
 
     hp = default_hparams()
+    if args.hparams is not None:
+        with open(args.hparams, 'r') as hf:
+            hp.parse_json(hf.read())
     
     fname = args.infile
 

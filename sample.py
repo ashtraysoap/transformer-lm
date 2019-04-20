@@ -1,7 +1,6 @@
 import json
 
 import tensorflow as tf
-from tensorflow.contrib.training import HParams
 
 import model
 from model import default_hparams
@@ -100,7 +99,11 @@ def main():
         char_to_idx = json.load(fp)
         idx_to_char = {v: k for k, v in char_to_idx.items()}
     
-    hparams = default_hparams() if args.hparams is None else HParams.parse_json(json.load(args.hparams))
+    hparams = default_hparams()
+    if args.hparams is not None:
+        with open(args.hparams, 'r') as hf:
+         hparams.parse_json(hf.read())
+
     length = args.length if args.length is not None else hparams.n_ctx // 2
 
     # build graph
