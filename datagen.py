@@ -15,7 +15,7 @@ def data_iterator(inf, char_to_idx, buffer=65536, context=512, batch=8, stride=8
         Example:
             'nekonecno'
             features: char_to_idx('nekonecn')
-            label: char_to_idx('ekonecno')
+            labels: char_to_idx('ekonecno')
         Args:
             inf: path to file containing input data
             char_to_idx: mapping from characters to indices
@@ -25,7 +25,7 @@ def data_iterator(inf, char_to_idx, buffer=65536, context=512, batch=8, stride=8
         Returns:
             A generator function yielding batches of the input data.
     """
-    inf = open(inf, 'r')
+    inf = open(inf, 'r', encoding='utf-8')
     
     executor = ThreadPoolExecutor(max_workers=1)
     x_it = _task(inf, buffer, context, batch, char_to_idx, stride)
@@ -82,7 +82,7 @@ def make_char_to_idx(inf):
     char_to_idx = {}
     i = 0
     
-    with open(inf, 'r') as inf:
+    with open(inf, 'r', encoding='utf-8') as inf:
         for l in inf:
             for c in l:
                 if c not in char_to_idx:

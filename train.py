@@ -78,7 +78,7 @@ def main():
 
     # log files for model's loss and intermediate samples
     lossf = open('loss_%s.txt' % signature, 'w')
-    trainf = open('train_%s.txt' % signature, 'w')
+    trainf = open('train_%s.txt' % signature, 'w', encoding='utf-8')
     logs = [trainf, sys.stdout] if args.verbose else [trainf]
 
     with tf.Session() as sess:
