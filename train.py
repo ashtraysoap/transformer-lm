@@ -113,7 +113,7 @@ def main():
     with open('vocab.json', 'w', encoding='utf-8') as f:
         json.dump(cti, f)
     with open('hparams.json', 'w') as f:
-        f.write(hp.to_json)
+        f.write(hp.to_json())
 
     trainf.close()
     lossf.close()
