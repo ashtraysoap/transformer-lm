@@ -52,8 +52,6 @@ def main():
     total_updates = ((total_chars - (hp.n_ctx + 1)) // hp.stride + 1) // batch_size * hp.n_epochs
     hp.n_updates_total = total_updates
 
-    g = dg.data_iterator(fname, cti, buffer=65536, context=hp.n_ctx, batch=batch_size, stride=8)
-
     context = tf.placeholder(tf.int32, [batch_size, None])
     labels = tf.placeholder(tf.int32, [batch_size, None])
 
@@ -85,6 +83,7 @@ def main():
         sess.run(tf.global_variables_initializer())
         for e in range(hp.n_epochs):
             log("================= Epoch {} =================".format(e + 1), logs)
+            g = dg.data_iterator(fname, cti, buffer=65536, context=hp.n_ctx, batch=batch_size, stride=8)
             for batch in g:
 
                 # compute loss on batch and update params
