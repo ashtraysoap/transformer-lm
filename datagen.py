@@ -91,34 +91,9 @@ def make_char_to_idx(inf):
 
     return char_to_idx
 
-def make_char_to_idx_by_occurence(inf, n_vocab=None):
-    cti = {}
-    with open(inf, 'r') as inf:
-        for l in inf:
-            for c in l:
-                if c not in cti:
-                    cti[c] = 1
-                else:
-                    cti[c] += 1
-    cti = sorted(cti.items(), key=lambda kv: kv[1], reverse=True)
-    if n_vocab is not None and len(cti) > n_vocab:
-        cti = [w for w, c in cti[:n_vocab]]
-        return [(b, a) for a, b in list(enumerate(cti))]
-    print(cti)
-    # else:
-    #     return [(b, a) for a, b in list(enumerate(cti.keys()))]
-
 def get_char_count(inf):
     o = run(['wc', '-m', inf], stdout=PIPE, stderr=PIPE).stdout
     return int(o.decode('utf-8').split(' ')[0])
-
-# def t1(inf, char_to_idx, buffer=4096):
-#     for _ in n_iter(inf, char_to_idx=char_to_idx, buffer=buffer):
-#         time.sleep(0.00001) # simulate computation
-
-# def t2(inf, char_to_idx, buffer=4096):
-#     for _ in n_iter_single_thread(inf, char_to_idx=char_to_idx, buffer=buffer):
-#         time.sleep(0.00001) # simulate computation
 
 
 if __name__ == "__main__":
