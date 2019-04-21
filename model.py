@@ -10,10 +10,10 @@ def default_hparams():
     # commented out are original values
     return HParams(
         n_vocab=0,
-        n_ctx=64,#1024,
-        n_embd=64,#256,#756,
+        n_ctx=1024,
+        n_embd=756,
         n_head=4,#12,
-        n_layer=3,#12,
+        n_layer=6,#12,
         max_grad_norm=1,
         lr=6.25e-5,
         lr_warmup=0.002,
@@ -27,7 +27,7 @@ def default_hparams():
         batch_size=8,
         n_epochs=10,
         stride=8,
-        sample_every=10#00
+        sample_every=10000
     )
 
 def past_shape(*, hparams, batch_size=None, sequence=None):
