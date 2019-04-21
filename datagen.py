@@ -1,9 +1,30 @@
-import time
-import cProfile
 from concurrent.futures import ThreadPoolExecutor
 from subprocess import run, PIPE
 
 import numpy as np
+
+class Dataset():
+    def __init__(self, inf, context=512, batch=8, stride=None, buffer=None):
+        self.char_to_idx = make_char_to_idx(inf)
+        self.idx_to_char = {v: k for k, v in self.char_to_idx.items()}
+        self.n_chars = get_char_count(inf)
+        self.n_vocab = len(self.char_to_idx)
+        self.context = context
+        self.batch = batch
+        self.stride = stride
+        self.buffer = buffer
+        self.infile = inf
+        if stride is not None:
+            self.aprox_n_batches = ((self.n_chars - (context + 1)) // stride + 1) // batch
+        else:
+            self.aprox_n_batches = ((self.n_chars - (context + 1)) // context + 1) // batch
+
+    def get_iterator(self):
+        return data_iterator(self.infile, self.char_to_idx, 
+                            self.buffer, 
+                            self.context, 
+                            self.batch, 
+                            self.stride)
 
 def data_iterator(inf, char_to_idx, buffer=65536, context=512, batch=8, stride=8):
     """
@@ -38,9 +59,15 @@ def data_iterator(inf, char_to_idx, buffer=65536, context=512, batch=8, stride=8
 
 def _task(inf, buffer, context, batch, char_to_idx, stride=None):
     if stride is None:
-        stride = context // 8
+        stride = context
+    
+    if buffer is None:
+        buf = inf.read()
+        buffer = len(buf)
+    else:
+        buf = inf.read(buffer)
+
     steps = (buffer - (context + 1)) // stride + 1 # ugly +1 because of labels
-    buf = inf.read(buffer)
     
     # End of file => end of iteration
     if buf == '':
@@ -66,7 +93,7 @@ def _task(inf, buffer, context, batch, char_to_idx, stride=None):
     x = np.reshape(a=x, newshape=(-1, batch, context))
     y = np.reshape(a=y, newshape=(-1, batch, context))
 
-    def iterator2():
+    def shuffling_iterator():
         # yields shuffled
         for i in perm:
             yield { 'features': x[i], 'labels': y[i] }
@@ -75,7 +102,7 @@ def _task(inf, buffer, context, batch, char_to_idx, stride=None):
         for bx, by in zip(x, y):
             yield {'features': bx, 'labels': by}
     
-    return iterator2
+    return shuffling_iterator
 
 
 def make_char_to_idx(inf):
@@ -94,16 +121,3 @@ def make_char_to_idx(inf):
 def get_char_count(inf):
     o = run(['wc', '-m', inf], stdout=PIPE, stderr=PIPE).stdout
     return int(o.decode('utf-8').split(' ')[0])
-
-
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('buffer', type=int, help="size of the chunks by which the input file is loaded")
-    args = parser.parse_args()
-
-    fn = 'dennikn_92105_lines.txt'
-    cti = make_char_to_idx(fn)
-
-    cProfile.run('t1(fn, cti, args.buffer)')
-    cProfile.run('t2(fn, cti, args.buffer)')

@@ -26,7 +26,6 @@ def default_hparams():
         opt='adam', # alternatively 'tf_adam'
         batch_size=8,
         n_epochs=10,
-        stride=8,
         sample_every=10000
     )
 

@@ -5,7 +5,7 @@ import json
 
 import tensorflow as tf
 
-import datagen as dg
+from datagen import Dataset
 from sample import sample_sequence
 from model import default_hparams, get_train_ops
 
@@ -30,6 +30,8 @@ def main():
     parser.add_argument('-m', '--modelpath', type=str, default="models/", help="path under which model checkpoints will be saved")
     parser.add_argument('-p', '--hparams', type=str, help="path to json-stored hyperparams")
     parser.add_argument('-v', '--verbose', action='store_true', help="if present, prints samples generated while training to stdout")
+    parser.add_argument('--stride', type=int, help="offset between succesive dataset instances, defaults to context window size, i.e. no overlap")
+    parser.add_argument('--buffer', type=int, help="if specified, reads the input file lazily in chunks of given number of bytes")
     args = parser.parse_args()
 
     hp = default_hparams()
@@ -37,20 +39,16 @@ def main():
         with open(args.hparams, 'r') as hf:
             hp.parse_json(hf.read())
     
-    fname = args.infile
-
-    cti = dg.make_char_to_idx(fname)
-    itc = {v: k for k, v in cti.items()}
-    
-    hp.n_vocab = len(cti)
-    
     batch_size = hp.batch_size
-    total_chars = dg.get_char_count(fname)
+
+    ds = Dataset(args.infile, context=hp.n_ctx, batch=batch_size, stride=args.stride, buffer=args.buffer)
+    cti = ds.char_to_idx
+    itc = ds.idx_to_char
+    hp.n_vocab = ds.n_vocab
 
     # need to estimate the number of parameter updates durning the entire training because of
     # an intricate learning rate adaptation scheme without which are transformers hard to train
-    total_updates = ((total_chars - (hp.n_ctx + 1)) // hp.stride + 1) // batch_size * hp.n_epochs
-    hp.n_updates_total = total_updates
+    hp.n_updates_total = ds.aprox_n_batches * hp.n_epochs
 
     context = tf.placeholder(tf.int32, [batch_size, None])
     labels = tf.placeholder(tf.int32, [batch_size, None])
@@ -83,8 +81,9 @@ def main():
         sess.run(tf.global_variables_initializer())
         for e in range(hp.n_epochs):
             log("================= Epoch {} =================".format(e + 1), logs)
-            g = dg.data_iterator(fname, cti, buffer=65536, context=hp.n_ctx, batch=batch_size, stride=8)
-            for batch in g:
+            
+            it = ds.get_iterator()
+            for batch in it:
 
                 # compute loss on batch and update params
                 l, _ = sess.run((loss, train_ops),feed_dict={context: batch['features'],
