@@ -1,3 +1,4 @@
+from time import time
 from functools import partial
 
 import numpy as np
@@ -10,10 +11,10 @@ def default_hparams():
     # commented out are original values
     return HParams(
         n_vocab=0,
-        n_ctx=1024,
-        n_embd=756,
+        n_ctx=75,#1024,
+        n_embd=128,#756,
         n_head=4,#12,
-        n_layer=6,#12,
+        n_layer=2,#12,
         max_grad_norm=1,
         lr=6.25e-5,
         lr_warmup=0.002,
@@ -23,11 +24,76 @@ def default_hparams():
         b1=0.9,
         b2=0.999,
         e=1e-8,
-        opt='adam', # alternatively 'tf_adam'
+        opt='tf_adam', # alternatively 'tf_adam'
         batch_size=8,
         n_epochs=10,
         sample_every=10000
     )
+
+class Network():
+    def __init__(self, seed=42):
+        graph = tf.Graph()
+        graph.seed = seed
+        self.session = tf.Session(graph=graph)
+        self.signature = str(int(time()))
+
+    def construct(self, hparams, past=None):
+        with self.session.graph.as_default():
+
+            # Construct the model
+            self.X = tf.placeholder(tf.int32, [None, None], name="inputs")
+            self.Y = tf.placeholder(tf.int32, [None, None], name="ground_truth")
+
+            results = {}
+            batch, sequence = shape_list(self.X)
+
+            wpe = tf.get_variable('wpe', [hparams.n_ctx, hparams.n_embd],
+                                initializer=tf.random_normal_initializer(stddev=0.01))
+            wte = tf.get_variable('wte', [hparams.n_vocab, hparams.n_embd],
+                                initializer=tf.random_normal_initializer(stddev=0.02))
+            past_length = 0 # if past is None else tf.shape(past)[-2]
+            h = tf.gather(wte, self.X) + tf.gather(wpe, position_for(self.X, past_length))
+
+            presents = []
+            pasts = tf.unstack(past, axis=1) if past is not None else [None] * hparams.n_layer
+            assert len(pasts) == hparams.n_layer
+            for layer, past in enumerate(pasts):
+                h, present = block(h, 'h%d' % layer, past=past, hparams=hparams)
+                presents.append(present)
+            results['present'] = tf.stack(presents, axis=1)
+            h = norm(h, 'ln_f')
+
+            h_flat = tf.reshape(h, [batch*sequence, hparams.n_embd])
+            logits = tf.matmul(h_flat, wte, transpose_b=True)
+            logits = tf.reshape(logits, [batch, sequence, hparams.n_vocab])
+            results['logits'] = logits
+
+            # Compute the loss
+            logits = results['logits']
+            loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.Y, logits=logits)
+            self.loss = tf.reduce_mean(loss, axis=None)  
+
+            # Attach the optimizer
+            global_step = tf.train.create_global_step()
+            self.train_ops = get_train_ops(hparams, self.loss, global_step)
+
+            # Summaries
+            summary_writer = tf.contrib.summary.create_file_writer('logs/%s' % self.signature, flush_millis=10 * 1000)
+            self.summaries = {}
+            with summary_writer.as_default(), tf.contrib.summary.record_summaries_every_n_global_steps(10):
+                self.summaries["train"] = [tf.contrib.summary.scalar("train/loss", self.loss)]
+
+            self.session.run(tf.global_variables_initializer())
+            with summary_writer.as_default():
+                tf.contrib.summary.initialize(session=self.session, graph=self.session.graph)
+
+
+    def train_epoch(self, dataset):
+        it = dataset.get_iterator()
+        for b in it:
+            self.session.run([ self.summaries, self.loss, self.train_ops ], 
+                            { self.X: b['features'], self.Y: b['labels'] })
+
 
 def past_shape(*, hparams, batch_size=None, sequence=None):
     return [batch_size, hparams.n_layer, 2, hparams.n_head, sequence, hparams.n_embd // hparams.n_head]
@@ -148,46 +214,12 @@ def position_for(tokens, past_length):
     nsteps = tf.shape(tokens)[1]
     return expand_tile(past_length + tf.range(nsteps), batch_size)
 
-def model(hparams, X, past=None, scope='model', reuse=tf.AUTO_REUSE):
-    with tf.variable_scope(scope, reuse=reuse):
-        results = {}
-        batch, sequence = shape_list(X)
-
-        wpe = tf.get_variable('wpe', [hparams.n_ctx, hparams.n_embd],
-                            initializer=tf.random_normal_initializer(stddev=0.01))
-        wte = tf.get_variable('wte', [hparams.n_vocab, hparams.n_embd],
-                            initializer=tf.random_normal_initializer(stddev=0.02))
-        past_length = 0 # if past is None else tf.shape(past)[-2]
-        h = tf.gather(wte, X) + tf.gather(wpe, position_for(X, past_length))
-
-        presents = []
-        pasts = tf.unstack(past, axis=1) if past is not None else [None] * hparams.n_layer
-        assert len(pasts) == hparams.n_layer
-        for layer, past in enumerate(pasts):
-            h, present = block(h, 'h%d' % layer, past=past, hparams=hparams)
-            presents.append(present)
-        results['present'] = tf.stack(presents, axis=1)
-        h = norm(h, 'ln_f')
-
-        h_flat = tf.reshape(h, [batch*sequence, hparams.n_embd])
-        logits = tf.matmul(h_flat, wte, transpose_b=True)
-        logits = tf.reshape(logits, [batch, sequence, hparams.n_vocab])
-        results['logits'] = logits
-
-        return results
-
-def get_train_ops(hparams, X, Y, past=None):
+def get_train_ops(hparams, loss, global_step, past=None):
     lr_schedules = {
         'warmup_constant': warmup_constant,
         'warmup_cosine': warmup_cosine,
         'warmup_linear': warmup_linear
     }
-
-    results = model(hparams, X, past, scope='model', reuse=tf.AUTO_REUSE)
-
-    logits = results['logits']
-    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=Y, logits=logits)
-    loss = tf.reduce_mean(loss, axis=None)
 
     if hparams.opt == 'adam':
         params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)#, ".*{}".format('model'))
@@ -203,10 +235,12 @@ def get_train_ops(hparams, X, Y, past=None):
                         b1=hparams.b1,
                         b2=hparams.b2,
                         e=hparams.e)
+        global_step.assign_add(tf.constant(tf.int32, 0))
     elif hparams.opt == 'tf_adam':
-        train_ops = tf.train.AdamOptimizer().minimize(loss)
+        # todo: clip gradient
+        train_ops = tf.train.AdamOptimizer().minimize(loss, global_step=global_step, name="training")
     else:
         raise Exception("Unsupported optimizer. Pick one of `adam`, `tf_adam`.")
 
-    return loss, train_ops
+    return train_ops
 
