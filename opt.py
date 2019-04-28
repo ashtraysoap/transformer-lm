@@ -28,7 +28,7 @@ def adam(params, grads, lr, schedule, t_total, b1=0.9, b2=0.999, e=1e-8, l2=0, v
     tt = t+1
     updates = [t.assign(tt)]
     if max_grad_norm > 0:
-        grads, _ = tf.clip_by_global_norm(grads, max_grad_norm)
+        grads, gradient_norm = tf.clip_by_global_norm(grads, max_grad_norm)
     for p, g in zip(params, grads):
         if p is None or g is None:
             print("can't train", p.name, g)
@@ -46,4 +46,4 @@ def adam(params, grads, lr, schedule, t_total, b1=0.9, b2=0.999, e=1e-8, l2=0, v
             else:
                 pt = p - lrt * (mt / (tf.sqrt(vt) + e))
             updates.extend([m.assign(mt), v.assign(vt), p.assign(pt)])
-    return tf.group(*updates)
+    return tf.group(*updates), gradient_norm

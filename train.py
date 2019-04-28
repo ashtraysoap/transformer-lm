@@ -8,12 +8,6 @@ import tensorflow as tf
 from datagen import Dataset
 from sample import sample_sequence
 from model import default_hparams, get_train_ops, Network
-
-# def _print_decoded(outputs, idx_to_char, logs):
-#     for i in range(outputs.shape[0]):
-#             text = ''.join([idx_to_char[x] for x in outputs[i]])
-#             log(i, logs)
-#             log(text, logs)
     
 def main():
     import argparse
@@ -43,73 +37,12 @@ def main():
     # an intricate learning rate adaptation scheme without which are transformers hard to train
     hp.n_updates_total = ds.aprox_n_batches * hp.n_epochs
 
-    # context = tf.placeholder(tf.int32, [batch_size, None])
-    # labels = tf.placeholder(tf.int32, [batch_size, None])
-
-    # loss, train_ops = get_train_ops(hp, context, labels, past=None)
-
-    # output = sample_sequence(hparams=hp,
-    #                         length=hp.n_ctx // 2,
-    #                         context=context,
-    #                         batch_size=batch_size,
-    #                         temperature=1,
-    #                         top_k=5)
-
-    # # sample every `sample_steps`
-    # sample_steps = hp.sample_every
-    # steps = 0
     
-    primed_text = "Nie "
-    primed_text = [cti[c] for c in primed_text]
-
-    # saver = tf.train.Saver(max_to_keep=5)
-    # signature = str(int(time.time())) # model signature
-
-    # log files for model's loss and intermediate samples
-    if not os.path.exists(args.log_dir):
-        os.mkdir(args.log_dir)
-
     network = Network()
     network.construct(hp)
-    for e in range(hp.n_epochs):
+    for _ in range(hp.n_epochs):
         network.train_epoch(ds)
-        # save model checkpoint ?
-        # sample                ?
 
-    # with tf.Session() as sess:
-    #     sess.run(tf.global_variables_initializer())
-    #     for e in range(hp.n_epochs):
-    #         log("================= Epoch {} =================".format(e + 1), logs)
-            
-    #         it = ds.get_iterator()
-    #         for batch in it:
-
-    #             # compute loss on batch and update params
-    #             _, l, _ = sess.run([summaries, loss, train_ops],feed_dict={context: batch['features'],
-    #                                                         labels: batch['labels']})
-    #             log('%f\n' % l, lossf)
-            
-    #             steps += 1
-    #             if steps % sample_steps == 0:
-    #                 # sample model
-    #                 log("================= Sampling | {} steps | epoch {} =================".format(steps, e + 1), logs)
-    #                 out = sess.run(output, feed_dict={context: batch_size * [primed_text]})
-    #                 _print_decoded(out, itc, logs)
-                
-    #             # save model
-    #             if not os.path.exists(args.modelpath):
-    #                 os.makedirs(args.modelpath)
-    #             ckpt_path = os.path.join(args.modelpath, signature + '.ckpt')
-    #             saver.save(sess, ckpt_path, global_step=e)
-
-    #     log("================= End of training | Final samples =================", logs)
-    #     out = sess.run(output, feed_dict={context: batch_size * [primed_text]})
-    #     _print_decoded(out, itc, logs)
-
-    with open('vocab.json', 'w', encoding='utf-8') as f:
-        json.dump(cti, f)
-    with open('hparams.json', 'w') as f:
-        f.write(hp.to_json())
 
 if __name__ == "__main__":
     main()

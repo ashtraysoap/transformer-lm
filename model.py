@@ -1,3 +1,4 @@
+import os
 from time import time
 from functools import partial
 
@@ -11,11 +12,11 @@ def default_hparams():
     # commented out are original values
     return HParams(
         n_vocab=0,
-        n_ctx=75,#1024,
+        n_ctx=50,#1024,
         n_embd=128,#756,
         n_head=4,#12,
         n_layer=2,#12,
-        max_grad_norm=1,
+        max_grad_norm=5.,
         lr=6.25e-5,
         lr_warmup=0.002,
         l2=0.01,
@@ -24,10 +25,11 @@ def default_hparams():
         b1=0.9,
         b2=0.999,
         e=1e-8,
-        opt='tf_adam', # alternatively 'tf_adam'
-        batch_size=8,
+        opt='tf_adam',
+        batch_size=50,
         n_epochs=10,
-        sample_every=10000
+        sample_every=10000,
+        log_dir='../transformer-lm-logs/'
     )
 
 class Network():
@@ -38,6 +40,7 @@ class Network():
         self.signature = str(int(time()))
 
     def construct(self, hparams, past=None):
+        self.hparams = hparams
         with self.session.graph.as_default():
 
             # Construct the model
@@ -75,17 +78,26 @@ class Network():
 
             # Attach the optimizer
             global_step = tf.train.create_global_step()
-            self.train_ops = get_train_ops(hparams, self.loss, global_step)
+            self.train_ops, gradient_norm = get_train_ops(hparams, self.loss, global_step)
 
             # Summaries
-            summary_writer = tf.contrib.summary.create_file_writer('logs/%s' % self.signature, flush_millis=10 * 1000)
+            log_dir = 'logs' if hparams.log_dir is None else hparams.log_dir
+            if not os.path.exists(log_dir):
+                os.mkdir(log_dir)    
+
+            summary_writer = tf.contrib.summary.create_file_writer(os.path.join(log_dir, self.signature), 
+                                                                    flush_millis=10 * 1000)
             self.summaries = {}
             with summary_writer.as_default(), tf.contrib.summary.record_summaries_every_n_global_steps(10):
-                self.summaries["train"] = [tf.contrib.summary.scalar("train/loss", self.loss)]
+                self.summaries["train"] = [tf.contrib.summary.scalar("train_loss", self.loss), 
+                                            tf.contrib.summary.scalar("train/gradient_norm", gradient_norm)]
 
             self.session.run(tf.global_variables_initializer())
             with summary_writer.as_default():
                 tf.contrib.summary.initialize(session=self.session, graph=self.session.graph)
+
+            with open(os.path.join(log_dir, self.signature, 'hparams.json'), 'w') as hpf:
+                hpf.write(hparams.to_json())
 
 
     def train_epoch(self, dataset):
@@ -93,6 +105,23 @@ class Network():
         for b in it:
             self.session.run([ self.summaries, self.loss, self.train_ops ], 
                             { self.X: b['features'], self.Y: b['labels'] })
+
+    # def create_summaries(self):
+    #     if not os.path.exists(args.log_dir):
+    #         os.mkdir(args.log_dir)
+
+    #     summary_writer = tf.contrib.summary.create_file_writer('logs/%s' % self.signature, flush_millis=10 * 1000)
+    #     self.summaries = {}
+    #     with summary_writer.as_default(), tf.contrib.summary.record_summaries_every_n_global_steps(10):
+    #         self.summaries["train"] = [tf.contrib.summary.scalar("train/loss", self.loss), 
+    #                                     tf.contrib.summary.scalar("train/gradient_norm", gradient_norm)]
+
+    #     self.session.run(tf.global_variables_initializer())
+    #     with summary_writer.as_default():
+    #         tf.contrib.summary.initialize(session=self.session, graph=self.session.graph)
+
+    #     with open('logs/%s/hparams.json' % self.signature, 'w') as hpf:
+    #         hpf.write(hparams.to_json())
 
 
 def past_shape(*, hparams, batch_size=None, sequence=None):
@@ -224,7 +253,7 @@ def get_train_ops(hparams, loss, global_step, past=None):
     if hparams.opt == 'adam':
         params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)#, ".*{}".format('model'))
         grads = tf.gradients(loss, params)
-        train_ops = adam(params,
+        train_ops, global_norm = adam(params,
                         grads,
                         hparams.lr,
                         partial(lr_schedules[hparams.lr_schedule], warmup=hparams.lr_warmup),
@@ -235,12 +264,28 @@ def get_train_ops(hparams, loss, global_step, past=None):
                         b1=hparams.b1,
                         b2=hparams.b2,
                         e=hparams.e)
-        global_step.assign_add(tf.constant(tf.int32, 0))
+        global_step.assign_add(tf.constant(0, dtype=tf.int64))
     elif hparams.opt == 'tf_adam':
-        # todo: clip gradient
-        train_ops = tf.train.AdamOptimizer().minimize(loss, global_step=global_step, name="training")
+        # decay_lr = tf.train.inverse_time_decay(learning_rate=0.001, 
+        #                                 global_step=global_step,
+        #                                 decay_steps=1.,
+        #                                 decay_rate=1.)
+        # # optimizer = tf.train.AdamOptimizer(learning_rate=lr)
+        # warmup_steps = 4000
+        # lr = tf.cond(global_step < warmup_steps, lambda: 0.0005, lambda: decay_lr)
+
+        #optimizer = tf.train.AdamOptimizer(learning_rate=0.0005)
+        lr = 0.001
+        optimizer = tf.train.AdamOptimizer(learning_rate=lr)
+        gradients, variables = zip(*optimizer.compute_gradients(loss))
+        global_norm = tf.global_norm(gradients)
+        if hparams.max_grad_norm:
+            gradients, global_norm = tf.clip_by_global_norm(gradients, hparams.max_grad_norm, use_norm=global_norm)
+
+        train_ops = optimizer.apply_gradients(zip(gradients, variables), global_step=global_step, name="training")
+        #train_ops = tf.train.AdamOptimizer().minimize(loss, global_step=global_step, name="training")
     else:
         raise Exception("Unsupported optimizer. Pick one of `adam`, `tf_adam`.")
 
-    return train_ops
+    return train_ops, global_norm
 
