@@ -1,5 +1,5 @@
 import os
-from time import time
+import time
 from functools import partial
 
 import numpy as np
@@ -37,7 +37,7 @@ class Network():
         graph = tf.Graph()
         graph.seed = seed
         self.session = tf.Session(graph=graph)
-        self.signature = str(int(time()))
+        self.signature = time.strftime("%Y-%m-%d-%H-%M-%S")
 
     def construct(self, hparams, past=None):
         self.hparams = hparams
