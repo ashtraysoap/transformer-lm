@@ -17,3 +17,5 @@ python3 train.py path/to/text/corpus
 ```
 python3 sample.py path/to/model/checkpoint path/to/vocab path/to/hyperparams
 ```
+
+See source for additional options.
