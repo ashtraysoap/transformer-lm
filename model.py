@@ -1,5 +1,6 @@
 import os
 import time
+import math
 from functools import partial
 
 import numpy as np
@@ -50,8 +51,9 @@ class Network():
             results = {}
             batch, sequence = shape_list(self.X)
 
-            wpe = tf.get_variable('wpe', [hparams.n_ctx, hparams.n_embd],
-                                initializer=tf.random_normal_initializer(stddev=0.01))
+            # wpe = tf.get_variable('wpe', [hparams.n_ctx, hparams.n_embd],
+            #                     initializer=tf.random_normal_initializer(stddev=0.01))
+            wpe = positional_encoding(hparams.n_ctx, hparams.n_embd)
             wte = tf.get_variable('wte', [hparams.n_vocab, hparams.n_embd],
                                 initializer=tf.random_normal_initializer(stddev=0.02))
             past_length = 0 # if past is None else tf.shape(past)[-2]
@@ -101,10 +103,11 @@ class Network():
 
 
     def train_epoch(self, dataset):
-        it = dataset.get_iterator()
-        for b in it:
+        dataset.reset_batch_pointer()
+        for _ in range(dataset.num_batches):
+            x, y = dataset.next_batch()
             self.session.run([ self.summaries, self.loss, self.train_ops ], 
-                            { self.X: b['features'], self.Y: b['labels'] })
+                            { self.X: x, self.Y: y })
 
     # def create_summaries(self):
     #     if not os.path.exists(args.log_dir):
@@ -123,6 +126,17 @@ class Network():
     #     with open('logs/%s/hparams.json' % self.signature, 'w') as hpf:
     #         hpf.write(hparams.to_json())
 
+def positional_encoding(n_ctx, n_embd):
+    assert n_embd % 2 == 0
+    p = tf.expand_dims(tf.range(0, n_ctx, dtype=tf.float32), 1)
+    i = tf.range(0, n_embd, 2, dtype=tf.float32)
+    d = tf.exp(tf.multiply(i, -(math.log(10000.0) / n_embd)))
+    d = tf.expand_dims(d, 0)
+    sin = tf.math.sin(d * p)
+    cos = tf.math.cos(d * p)
+    pe = tf.reshape(tf.stack([sin,cos], axis=2), [tf.shape(sin)[0], -1])
+    assert pe.shape[0] == n_ctx and pe.shape[1] == n_embd
+    return pe
 
 def past_shape(*, hparams, batch_size=None, sequence=None):
     return [batch_size, hparams.n_layer, 2, hparams.n_head, sequence, hparams.n_embd // hparams.n_head]

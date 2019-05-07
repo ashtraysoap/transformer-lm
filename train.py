@@ -5,14 +5,14 @@ import json
 
 import tensorflow as tf
 
-from datagen import Dataset
+from datagen import TextLoader
 from sample import sample_sequence
 from model import default_hparams, get_train_ops, Network
     
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('infile', type=str, help="path to the text corpus")
+    parser.add_argument('data_dir', type=str, help="path to the directory containing the text corpus")
     parser.add_argument('-m', '--modelpath', type=str, default="models/", help="path under which model checkpoints will be saved")
     parser.add_argument('-l', '--log_dir', type=str, default="logs/", help="path to the dir where logs shall be stored")
     parser.add_argument('-p', '--hparams', type=str, help="path to json-stored hyperparams")
@@ -28,19 +28,15 @@ def main():
     
     batch_size = hp.batch_size
 
-    ds = Dataset(args.infile, context=hp.n_ctx, batch=batch_size, stride=args.stride, buffer=args.buffer)
+    ds = TextLoader(args.data_dir, seq_length=hp.n_ctx, batch_size=batch_size)
     cti = ds.char_to_idx
     itc = ds.idx_to_char
-    hp.n_vocab = ds.n_vocab
-
-    # need to estimate the number of parameter updates durning the entire training because of
-    # an intricate learning rate adaptation scheme without which are transformers hard to train
-    hp.n_updates_total = ds.aprox_n_batches * hp.n_epochs
-
+    hp.n_vocab = len(cti)
     
     network = Network()
     network.construct(hp)
-    for _ in range(hp.n_epochs):
+    for i in range(hp.n_epochs):
+        print("Epoch ", i)
         network.train_epoch(ds)
 
 
