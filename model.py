@@ -40,7 +40,7 @@ class Network():
         self.session = tf.Session(graph=graph)
         self.signature = time.strftime("%Y-%m-%d-%H-%M-%S")
 
-    def construct(self, hparams, past=None):
+    def construct(self, hparams):
         self.hparams = hparams
         with self.session.graph.as_default():
 
@@ -51,21 +51,15 @@ class Network():
             results = {}
             batch, sequence = shape_list(self.X)
 
-            # wpe = tf.get_variable('wpe', [hparams.n_ctx, hparams.n_embd],
-            #                     initializer=tf.random_normal_initializer(stddev=0.01))
-            wpe = positional_encoding(hparams.n_ctx, hparams.n_embd)
+            wpe = tf.get_variable('wpe', [hparams.n_ctx, hparams.n_embd],
+                                 initializer=tf.random_normal_initializer(stddev=0.01))
+            #wpe = positional_encoding(hparams.n_ctx, hparams.n_embd)
             wte = tf.get_variable('wte', [hparams.n_vocab, hparams.n_embd],
                                 initializer=tf.random_normal_initializer(stddev=0.02))
-            past_length = 0 # if past is None else tf.shape(past)[-2]
-            h = tf.gather(wte, self.X) + tf.gather(wpe, position_for(self.X, past_length))
+            h = tf.gather(wte, self.X) + tf.gather(wpe, position_for(self.X, 0))
 
-            presents = []
-            pasts = tf.unstack(past, axis=1) if past is not None else [None] * hparams.n_layer
-            assert len(pasts) == hparams.n_layer
-            for layer, past in enumerate(pasts):
-                h, present = block(h, 'h%d' % layer, past=past, hparams=hparams)
-                presents.append(present)
-            results['present'] = tf.stack(presents, axis=1)
+            for layer in range(hparams.n_layer):
+                h = block(h, 'h%d' % layer, hparams=hparams)
             h = norm(h, 'ln_f')
 
             h_flat = tf.reshape(h, [batch*sequence, hparams.n_embd])
@@ -80,7 +74,7 @@ class Network():
 
             # Attach the optimizer
             global_step = tf.train.create_global_step()
-            self.train_ops, gradient_norm = get_train_ops(hparams, self.loss, global_step)
+            self.train_ops, gradient_norm, self.lr = get_train_ops(hparams, self.loss, global_step)
 
             # Summaries
             log_dir = 'logs' if hparams.log_dir is None else hparams.log_dir
@@ -92,7 +86,8 @@ class Network():
             self.summaries = {}
             with summary_writer.as_default(), tf.contrib.summary.record_summaries_every_n_global_steps(10):
                 self.summaries["train"] = [tf.contrib.summary.scalar("train_loss", self.loss), 
-                                            tf.contrib.summary.scalar("train/gradient_norm", gradient_norm)]
+                                            tf.contrib.summary.scalar("train/gradient_norm", gradient_norm),
+                                            tf.contrib.summary.scalar("train/learning_rate", self.lr)]
 
             self.session.run(tf.global_variables_initializer())
             with summary_writer.as_default():
@@ -138,9 +133,6 @@ def positional_encoding(n_ctx, n_embd):
     assert pe.shape[0] == n_ctx and pe.shape[1] == n_embd
     return pe
 
-def past_shape(*, hparams, batch_size=None, sequence=None):
-    return [batch_size, hparams.n_layer, 2, hparams.n_head, sequence, hparams.n_embd // hparams.n_head]
-
 def split_states(x, n):
     *start, m = shape_list(x)
     return tf.reshape(x, start + [n, m//n])
@@ -182,11 +174,9 @@ def attention_mask(nd, ns, *, dtype):
     m = i >= j - ns + nd
     return tf.cast(m, dtype)
 
-def attn(x, scope, n_state, *, past, hparams):
+def attn(x, scope, n_state, *, hparams):
     assert x.shape.ndims == 3 # [batch, sequence, features]
     assert n_state % hparams.n_head == 0
-    if past is not None:
-        assert past.shape.ndims == 5 # [batch, 2, head, sequence, features]
     
     def split_heads(x):
         # [batch, sequence, features] => [batch, heads, sequence, features]
@@ -215,15 +205,11 @@ def attn(x, scope, n_state, *, past, hparams):
     with tf.variable_scope(scope):
         c = conv1d(x, 'c_attn', n_state*3)
         q, k, v = map(split_heads, tf.split(c, 3, axis=2))
-        present = tf.stack([k, v], axis=1)
-        if past is not None:
-            pk, pv = tf.unstack(past, axis=1)
-            k = tf.concat([pk, k], axis=-2)
-            v = tf.concat([pv, v], axis=-2)
+
         a = multihead_attn(q, k, v)
         a = merge_heads(a)
         a = conv1d(a, 'c_proj', n_state)
-        return a, present
+        return a
 
 
 def mlp(x, scope, n_state, *, hparams):
@@ -233,14 +219,14 @@ def mlp(x, scope, n_state, *, hparams):
         h2 = conv1d(h, 'c_proj', nx)
         return h2
 
-def block(x, scope, *, past, hparams):
+def block(x, scope, *, hparams):
     with tf.variable_scope(scope):
         nx = x.shape[-1].value
-        a, present = attn(norm(x, 'ln_1'), 'attn', nx, past=past, hparams=hparams)
+        a = attn(norm(x, 'ln_1'), 'attn', nx, hparams=hparams)
         x = x + a
         m = mlp(norm(x, 'ln_2'), 'mlp', nx * 4, hparams=hparams)
         x = x + m
-        return x, present
+        return x
 
 def shape_list(x):
     static = x.shape.as_list()
@@ -257,49 +243,20 @@ def position_for(tokens, past_length):
     nsteps = tf.shape(tokens)[1]
     return expand_tile(past_length + tf.range(nsteps), batch_size)
 
-def get_train_ops(hparams, loss, global_step, past=None):
-    lr_schedules = {
-        'warmup_constant': warmup_constant,
-        'warmup_cosine': warmup_cosine,
-        'warmup_linear': warmup_linear
-    }
+def get_train_ops(hparams, loss, global_step):    
+    warmup_steps = 4000
 
-    if hparams.opt == 'adam':
-        params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)#, ".*{}".format('model'))
-        grads = tf.gradients(loss, params)
-        train_ops, global_norm = adam(params,
-                        grads,
-                        hparams.lr,
-                        partial(lr_schedules[hparams.lr_schedule], warmup=hparams.lr_warmup),
-                        hparams.n_updates_total,
-                        l2=hparams.l2,
-                        max_grad_norm=hparams.max_grad_norm,
-                        vector_l2=hparams.vector_l2,
-                        b1=hparams.b1,
-                        b2=hparams.b2,
-                        e=hparams.e)
-        global_step.assign_add(tf.constant(0, dtype=tf.int64))
-    elif hparams.opt == 'tf_adam':
-        # decay_lr = tf.train.inverse_time_decay(learning_rate=0.001, 
-        #                                 global_step=global_step,
-        #                                 decay_steps=1.,
-        #                                 decay_rate=1.)
-        # # optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-        # warmup_steps = 4000
-        # lr = tf.cond(global_step < warmup_steps, lambda: 0.0005, lambda: decay_lr)
+    # Inverse square root of the timestep proprotional learning rate with warmup
+    lr = tf.cond(global_step < warmup_steps, lambda: math.pow(warmup_steps, -1.5), 
+        lambda: tf.math.pow(tf.cast(global_step, dtype=tf.float32), -1.5))
+    lr = math.pow(hparams.n_embd, -0.5) * tf.cast((1 + global_step), dtype=tf.float32) * lr
 
-        #optimizer = tf.train.AdamOptimizer(learning_rate=0.0005)
-        lr = 0.001
-        optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-        gradients, variables = zip(*optimizer.compute_gradients(loss))
-        global_norm = tf.global_norm(gradients)
-        if hparams.max_grad_norm:
-            gradients, global_norm = tf.clip_by_global_norm(gradients, hparams.max_grad_norm, use_norm=global_norm)
+    optimizer = tf.train.AdamOptimizer(learning_rate=lr)
+    gradients, variables = zip(*optimizer.compute_gradients(loss))
+    global_norm = tf.global_norm(gradients)
+    if hparams.max_grad_norm:
+        gradients, global_norm = tf.clip_by_global_norm(gradients, hparams.max_grad_norm, use_norm=global_norm)
 
-        train_ops = optimizer.apply_gradients(zip(gradients, variables), global_step=global_step, name="training")
-        #train_ops = tf.train.AdamOptimizer().minimize(loss, global_step=global_step, name="training")
-    else:
-        raise Exception("Unsupported optimizer. Pick one of `adam`, `tf_adam`.")
+    train_ops = optimizer.apply_gradients(zip(gradients, variables), global_step=global_step, name="training")
 
-    return train_ops, global_norm
-
+    return train_ops, global_norm, lr
