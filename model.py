@@ -14,19 +14,19 @@ def default_hparams():
     return HParams(
         n_vocab=0,
         n_ctx=50,#1024,
-        n_embd=128,#756,
+        n_embd=256,#756,
         n_head=4,#12,
-        n_layer=2,#12,
+        n_layer=3,#12,
         max_grad_norm=5.,
+        warmup_steps=2000,
+        positional_encoding='learned', # or 'fixed'
         lr=6.25e-5,
         lr_warmup=0.002,
         l2=0.01,
         vector_l2='store_true',
-        lr_schedule='warmup_linear',
         b1=0.9,
         b2=0.999,
         e=1e-8,
-        opt='tf_adam',
         batch_size=50,
         n_epochs=10,
         sample_every=10000,
@@ -51,9 +51,11 @@ class Network():
             results = {}
             batch, sequence = shape_list(self.X)
 
-            wpe = tf.get_variable('wpe', [hparams.n_ctx, hparams.n_embd],
-                                 initializer=tf.random_normal_initializer(stddev=0.01))
-            #wpe = positional_encoding(hparams.n_ctx, hparams.n_embd)
+            if hparams.positional_encoding == 'learned':
+                wpe = tf.get_variable('wpe', [hparams.n_ctx, hparams.n_embd],
+                                     initializer=tf.random_normal_initializer(stddev=0.01))
+            elif hparams.positional_encoding == 'fixed':
+                wpe = positional_encoding(hparams.n_ctx, hparams.n_embd)
             wte = tf.get_variable('wte', [hparams.n_vocab, hparams.n_embd],
                                 initializer=tf.random_normal_initializer(stddev=0.02))
             h = tf.gather(wte, self.X) + tf.gather(wpe, position_for(self.X, 0))
@@ -244,7 +246,7 @@ def position_for(tokens, past_length):
     return expand_tile(past_length + tf.range(nsteps), batch_size)
 
 def get_train_ops(hparams, loss, global_step):    
-    warmup_steps = 4000
+    warmup_steps = hparams.warmup_steps
 
     # Inverse square root of the timestep proprotional learning rate with warmup
     lr = tf.cond(global_step < warmup_steps, lambda: math.pow(warmup_steps, -1.5), 
